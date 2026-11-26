@@ -182,6 +182,7 @@ Kiri's own commands:
 | Command | What it does |
 |---------|--------------|
 | `kiri start` | Start Kiri again after a Stop, as Start in the window does |
+| `kiri engine [status [--json] \| start \| stop \| restart]` | Start, stop, restart, or inspect the Kiri engine |
 | `kiri k8s start \| stop \| status [--json] \| delete` | A single-node Kubernetes cluster |
 | `kiri machine create NAME [--distro D] \| list [--json] \| shell NAME \| stop \| delete NAME` | Linux machines |
 | `kiri share PORT\|CONTAINER [--name N]` | Share a local port or container on the internet |

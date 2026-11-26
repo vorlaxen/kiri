@@ -58,6 +58,9 @@ mod doctor;
 // `kiri domains`: the container-domain routers' ports (Windows: in WSL).
 #[cfg(unix)]
 mod domains_cli;
+// `kiri engine`: start, stop, restart, and inspect the Kiri engine lifecycle.
+#[cfg(any(unix, windows))]
+mod engine_cli;
 mod flavor;
 #[cfg(unix)]
 mod images;
@@ -113,6 +116,7 @@ const USAGE_LINES: &[&str] = &[
     "usage: kiri COMMAND          docker's commands, on Kiri: kiri run, ps, exec,",
     "                             logs, stop, rm, images, pull, build, compose…",
     "       kiri start                 start Kiri after a Stop (the window's Start)",
+    "       kiri engine [status [--json] | start | stop | restart]   manage the Kiri engine lifecycle",
     #[cfg(unix)]
     "       kiri daemon",
     #[cfg(target_os = "linux")]
@@ -231,6 +235,8 @@ enum Command<'a> {
     Share(&'a [String]),
     Start(&'a [String]),
     #[cfg(any(unix, windows))]
+    Engine(&'a [String]),
+    #[cfg(any(unix, windows))]
     BuildWith(&'a [String]),
     #[cfg(unix)]
     Domains(&'a [String]),
@@ -302,6 +308,8 @@ impl<'a> Command<'a> {
             // On Windows, by the `kiri` in WSL, once kiri-start has the daemon up.
             #[cfg(windows)]
             Some("start") if args[1..].iter().all(|a| matches!(a.as_str(), "-h" | "--help")) => Some(Command::Start(args)),
+            #[cfg(any(unix, windows))]
+            Some("engine") => Some(Command::Engine(&args[1..])),
             #[cfg(any(unix, windows))]
             Some("build-with") => Some(Command::BuildWith(&args[1..])),
             #[cfg(unix)]
@@ -456,6 +464,11 @@ fn main() -> ExitCode {
         #[cfg(windows)]
         Some(Command::Start(all)) => wsl::run(all),
         #[cfg(any(unix, windows))]
+        Some(Command::Engine(rest)) => match engine_cli::run(rest) {
+            Ok(code) => return ExitCode::from(code),
+            Err(e) => Err(e),
+        },
+        #[cfg(any(unix, windows))]
         Some(Command::BuildWith(rest)) => buildwith::cli(rest),
         #[cfg(unix)]
         Some(Command::Domains(rest)) => domains_cli::run(rest),
@@ -552,36 +565,12 @@ fn window(args: &[String]) -> std::io::Result<()> {
     Err(std::process::Command::new(WINDOW).args(args).exec())
 }
 
-#[cfg(unix)]
-fn engine_start_not_running_message() -> &'static str {
-    #[cfg(target_os = "macos")]
-    {
-        "Kiri's engine isn't running. Open Kiri, or start it with `kiri daemon`"
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        client::not_running_message()
-    }
-}
-
 /// `kiri start`: Kiri on again after a Stop (the window's, the tray's or
 /// the menu bar's), as the window's Start does; the containers Stop held
 /// come back. On an engine that wasn't stopped it only wakes the VM.
 #[cfg(unix)]
 fn engine_start() -> std::io::Result<()> {
-    #[cfg(target_os = "macos")]
-    if !client::alive() {
-        if let Ok(d) = daemon::state_dir() {
-            let _ = std::fs::remove_file(d.join("stopped"));
-        }
-        update::start_engine()?;
-    }
-    client::check_alive_with(engine_start_not_running_message())?;
-    let r = client::request("POST", "/kiri/wake", None)?;
-    // 404: a Linux host's engine, which has no VM to wake and no Stop.
-    if !r.ok() && r.status != 404 {
-        return Err(std::io::Error::other(r.error()));
-    }
+    engine_cli::wake_engine()?;
     println!("Kiri is started");
     Ok(())
 }
@@ -633,7 +622,7 @@ mod tests {
     fn usage_lists_only_commands_for_this_os() {
         let help = usage();
         let cmds = advertised_subcommands(&help);
-        for common in ["COMMAND", "start", "doctor", "domains", "storage", "registry", "scan", "diag", "PORT", "share", "k8s", "usb", "machine"] {
+        for common in ["COMMAND", "start", "engine", "doctor", "domains", "storage", "registry", "scan", "diag", "PORT", "share", "k8s", "usb", "machine"] {
             assert!(cmds.contains(&common), "help missing `{common}`:\n{help}");
         }
         assert!(help.contains("kiri storage [status | reclaim]"), "help missing `kiri storage`:\n{help}");
@@ -845,6 +834,11 @@ mod tests {
         let mut subcommands: Vec<&[&str]> = vec![
             &["daemon"],
             &["start"],
+            &["engine"],
+            &["engine", "start"],
+            &["engine", "stop"],
+            &["engine", "restart"],
+            &["engine", "status"],
             &["share"],
             &["3000"],
             &["build-with"],

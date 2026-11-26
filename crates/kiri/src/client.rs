@@ -307,10 +307,16 @@ pub fn request(method: &str, path: &str, body: Option<&Value>) -> io::Result<Res
     send(method, path, body, "")
 }
 
+/// A background request (e.g. status, lists): it doesn't count as use, so it
+/// never wakes or keeps an idle VM awake.
+pub fn request_background(method: &str, path: &str) -> io::Result<Response> {
+    send(method, path, None, "X-Kiri-Background: 1\r\n")
+}
+
 /// A GET the window makes on its own (status, lists): it doesn't count as
 /// use, so it never keeps an idle VM awake.
 pub fn get_background(path: &str) -> io::Result<Value> {
-    let r = send("GET", path, None, "X-Kiri-Background: 1\r\n")?;
+    let r = request_background("GET", path)?;
     if !r.ok() {
         return Err(io::Error::other(r.error()));
     }
